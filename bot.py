@@ -7,14 +7,15 @@ import os
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
+import config
 
 # Load environment variables
 load_dotenv()
 
 # Bot configuration
 TOKEN = os.getenv('DISCORD_TOKEN')
-GUILD_ID = int(os.getenv('GUILD_ID', 0))
-INVITE_CHANNEL_ID = int(os.getenv('INVITE_CHANNEL_ID', 0))
+GUILD_ID = int(os.getenv('GUILD_ID')) if os.getenv('GUILD_ID') else None
+INVITE_CHANNEL_ID = int(os.getenv('INVITE_CHANNEL_ID')) if os.getenv('INVITE_CHANNEL_ID') else None
 
 # Bot setup with intents
 intents = discord.Intents.default()
@@ -22,7 +23,7 @@ intents.message_content = True
 intents.guilds = True
 intents.members = True
 
-bot = commands.Bot(command_prefix='!', intents=intents)
+bot = commands.Bot(command_prefix=config.COMMAND_PREFIX, intents=intents)
 
 
 @bot.event
@@ -39,23 +40,27 @@ async def on_ready():
 @bot.event
 async def on_member_join(member):
     """Event handler for when a new member joins the guild"""
+    if not config.ENABLE_WELCOME_MESSAGES:
+        return
+    
     guild = member.guild
-    if guild.id == GUILD_ID:
-        channel = guild.get_channel(INVITE_CHANNEL_ID)
-        if channel:
-            embed = discord.Embed(
-                title="Welcome to Where Winds Meet Guild!",
-                description=f"Welcome {member.mention}! We're glad to have you here.",
-                color=discord.Color.green()
-            )
-            embed.set_thumbnail(url=member.avatar.url if member.avatar else member.default_avatar.url)
-            embed.add_field(name="Member Count", value=f"{guild.member_count}", inline=True)
-            await channel.send(embed=embed)
+    if GUILD_ID and guild.id == GUILD_ID:
+        if INVITE_CHANNEL_ID:
+            channel = guild.get_channel(INVITE_CHANNEL_ID)
+            if channel:
+                embed = discord.Embed(
+                    title="Welcome to Where Winds Meet Guild!",
+                    description=f"Welcome {member.mention}! We're glad to have you here.",
+                    color=config.COLOR_SUCCESS
+                )
+                embed.set_thumbnail(url=member.avatar.url if member.avatar else member.default_avatar.url)
+                embed.add_field(name="Member Count", value=f"{guild.member_count}", inline=True)
+                await channel.send(embed=embed)
 
 
 @bot.command(name='createinvite', help='Creates a new invite link for the guild')
 @commands.has_permissions(manage_guild=True)
-async def create_invite(ctx, max_age: int = 0, max_uses: int = 0):
+async def create_invite(ctx, max_age: int = config.DEFAULT_INVITE_MAX_AGE, max_uses: int = config.DEFAULT_INVITE_MAX_USES):
     """
     Creates a new invite link with optional parameters
     
@@ -74,7 +79,7 @@ async def create_invite(ctx, max_age: int = 0, max_uses: int = 0):
         embed = discord.Embed(
             title="🎫 New Invite Created!",
             description=f"Invite link: {invite.url}",
-            color=discord.Color.blue()
+            color=config.COLOR_INFO
         )
         
         if max_age > 0:
@@ -90,15 +95,27 @@ async def create_invite(ctx, max_age: int = 0, max_uses: int = 0):
         await ctx.send(embed=embed)
         
     except discord.Forbidden:
-        await ctx.send("❌ I don't have permission to create invites in this channel!")
+        embed = discord.Embed(
+            description="❌ I don't have permission to create invites in this channel!",
+            color=config.COLOR_ERROR
+        )
+        await ctx.send(embed=embed)
     except Exception as e:
-        await ctx.send(f"❌ An error occurred: {str(e)}")
+        embed = discord.Embed(
+            description=f"❌ An error occurred: {str(e)}",
+            color=config.COLOR_ERROR
+        )
+        await ctx.send(embed=embed)
 
 
 @bot.command(name='inviteinfo', help='Shows information about active invites')
 @commands.has_permissions(manage_guild=True)
 async def invite_info(ctx):
     """Shows all active invites for the guild"""
+    if not config.ENABLE_INVITE_TRACKING:
+        await ctx.send("Invite tracking is currently disabled.")
+        return
+    
     try:
         invites = await ctx.guild.invites()
         
@@ -108,7 +125,7 @@ async def invite_info(ctx):
         
         embed = discord.Embed(
             title=f"📋 Active Invites for {ctx.guild.name}",
-            color=discord.Color.purple()
+            color=config.COLOR_INFO
         )
         
         for invite in invites[:10]:  # Limit to 10 invites
@@ -132,15 +149,27 @@ async def invite_info(ctx):
         await ctx.send(embed=embed)
         
     except discord.Forbidden:
-        await ctx.send("❌ I don't have permission to view invites!")
+        embed = discord.Embed(
+            description="❌ I don't have permission to view invites!",
+            color=config.COLOR_ERROR
+        )
+        await ctx.send(embed=embed)
     except Exception as e:
-        await ctx.send(f"❌ An error occurred: {str(e)}")
+        embed = discord.Embed(
+            description=f"❌ An error occurred: {str(e)}",
+            color=config.COLOR_ERROR
+        )
+        await ctx.send(embed=embed)
 
 
 @bot.command(name='autoinvite', help='Automatically creates and posts a permanent invite link')
 @commands.has_permissions(manage_guild=True)
 async def auto_invite(ctx):
     """Creates a permanent invite link and posts it"""
+    if not config.ENABLE_AUTO_INVITE:
+        await ctx.send("Auto invite is currently disabled.")
+        return
+    
     try:
         # Create a permanent invite
         invite = await ctx.channel.create_invite(
@@ -152,7 +181,7 @@ async def auto_invite(ctx):
         embed = discord.Embed(
             title="🌟 Where Winds Meet Guild - Permanent Invite",
             description="Join our guild and adventure together!",
-            color=discord.Color.gold()
+            color=config.COLOR_WARNING
         )
         embed.add_field(name="Invite Link", value=f"{invite.url}", inline=False)
         embed.add_field(name="Features", value="✨ Active community\n🎮 Guild events\n🤝 Helpful members", inline=False)
@@ -161,9 +190,17 @@ async def auto_invite(ctx):
         await ctx.send(embed=embed)
         
     except discord.Forbidden:
-        await ctx.send("❌ I don't have permission to create invites!")
+        embed = discord.Embed(
+            description="❌ I don't have permission to create invites!",
+            color=config.COLOR_ERROR
+        )
+        await ctx.send(embed=embed)
     except Exception as e:
-        await ctx.send(f"❌ An error occurred: {str(e)}")
+        embed = discord.Embed(
+            description=f"❌ An error occurred: {str(e)}",
+            color=config.COLOR_ERROR
+        )
+        await ctx.send(embed=embed)
 
 
 @bot.command(name='help_wwm', help='Shows help information for Where Winds Meet bot')
@@ -172,7 +209,7 @@ async def help_wwm(ctx):
     embed = discord.Embed(
         title="🎮 Where Winds Meet Guild Bot - Help",
         description="Auto invite bot for managing guild invites",
-        color=discord.Color.blue()
+        color=config.COLOR_INFO
     )
     
     embed.add_field(
@@ -224,6 +261,14 @@ def main():
         print("Error: DISCORD_TOKEN not found in environment variables!")
         print("Please create a .env file with your bot token.")
         return
+    
+    if GUILD_ID is None:
+        print("Warning: GUILD_ID not set in environment variables!")
+        print("Some features may not work properly.")
+    
+    if INVITE_CHANNEL_ID is None:
+        print("Warning: INVITE_CHANNEL_ID not set in environment variables!")
+        print("Welcome messages will be disabled.")
     
     try:
         bot.run(TOKEN)
